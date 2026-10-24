@@ -1,173 +1,401 @@
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import React from "react";
 import {
-  ActivityIndicator,
+  Dimensions,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import * as Animatable from "react-native-animatable";
 import { useApp } from "../../src/context/AppContext";
+
+const { width } = Dimensions.get("window");
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user, stats, todayStats, rewards, isLoading, isSessionActive } =
-    useApp();
+  const { user, stats, todayStats, todayGoal, streak } = useApp();
 
-  if (isLoading) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="white" />
-        <Text style={styles.loadingText}>Loading...</Text>
-      </View>
-    );
-  }
+  const goalProgress = todayGoal
+    ? Math.min(
+        (todayGoal.achieved_minutes / todayGoal.target_minutes) * 100,
+        100,
+      )
+    : 0;
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.emoji}>🌊</Text>
-      <Text style={styles.title}>OSHION</Text>
-      <Text style={styles.subtitle}>Digital Focus Regulator</Text>
-
-      {/* Quick Stats */}
-      <View style={styles.quickStats}>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{todayStats.totalMinutes}</Text>
-          <Text style={styles.statLabel}>min today</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{stats.sessionCount}</Text>
-          <Text style={styles.statLabel}>sessions</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{rewards.length}</Text>
-          <Text style={styles.statLabel}>rewards</Text>
-        </View>
-      </View>
-
-      {/* Start Focus Button */}
-      <TouchableOpacity
-        style={[
-          styles.startButton,
-          isSessionActive && styles.startButtonDisabled,
-        ]}
-        onPress={() => router.push("/focus-mode-selection")}
-        disabled={isSessionActive}
+    <LinearGradient
+      colors={["#0A0E27", "#1A1F3A", "#2D1B69"]}
+      style={styles.container}
+    >
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
       >
-        <Text style={styles.startButtonIcon}>▶️</Text>
-        <Text style={styles.startButtonText}>
-          {isSessionActive ? "Session In Progress..." : "Start Focus Session"}
-        </Text>
-      </TouchableOpacity>
+        {/* Header */}
+        <Animatable.View animation="fadeInDown" style={styles.header}>
+          <View>
+            <Text style={styles.greeting}>Welcome back,</Text>
+            <Text style={styles.username}>{user.username} 👋</Text>
+          </View>
+          <TouchableOpacity style={styles.profileButton}>
+            <LinearGradient
+              colors={["#667EEA", "#764BA2"]}
+              style={styles.profileGradient}
+            >
+              <Text style={styles.profileEmoji}>🌊</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animatable.View>
 
-      {/* Recent Activity */}
-      <View style={styles.activityBox}>
-        <Text style={styles.activityTitle}>Recent Activity</Text>
-        <Text style={styles.activityText}>
-          {stats.sessionCount > 0
-            ? `Great job! You've completed ${stats.sessionCount} focus sessions.`
-            : "Start your first focus session to begin building your ocean!"}
-        </Text>
-      </View>
-    </View>
+        {/* Daily Goal Card */}
+        <Animatable.View
+          animation="fadeInUp"
+          delay={200}
+          style={styles.goalCard}
+        >
+          <LinearGradient
+            colors={["rgba(102,126,234,0.2)", "rgba(118,75,162,0.2)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.goalGradient}
+          >
+            <View style={styles.goalHeader}>
+              <Text style={styles.goalTitle}>Today's Goal</Text>
+              <TouchableOpacity onPress={() => router.push("/goal-settings")}>
+                <Text style={styles.editButton}>Edit</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.goalStats}>
+              <Text style={styles.goalValue}>
+                {todayGoal?.achieved_minutes || 0} /{" "}
+                {todayGoal?.target_minutes || 60}
+              </Text>
+              <Text style={styles.goalLabel}>minutes</Text>
+            </View>
+
+            {/* Progress Bar */}
+            <View style={styles.progressBarContainer}>
+              <LinearGradient
+                colors={["#667EEA", "#764BA2", "#F093FB"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.progressBar, { width: `${goalProgress}%` }]}
+              />
+            </View>
+            <Text style={styles.progressText}>
+              {Math.round(goalProgress)}% Complete
+            </Text>
+          </LinearGradient>
+        </Animatable.View>
+
+        {/* Stats Grid */}
+        <Animatable.View animation="fadeInUp" delay={300}>
+          <View style={styles.statsGrid}>
+            {/* Stat 1 - Today */}
+            <LinearGradient
+              colors={["#667EEA", "#764BA2"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.statCard}
+            >
+              <Text style={styles.statEmoji}>🔥</Text>
+              <Text style={styles.statValue}>{todayStats.sessionCount}</Text>
+              <Text style={styles.statLabel}>Today Sessions</Text>
+            </LinearGradient>
+
+            {/* Stat 2 - Streak */}
+            <LinearGradient
+              colors={["#F093FB", "#F5576C"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.statCard}
+            >
+              <Text style={styles.statEmoji}>⚡</Text>
+              <Text style={styles.statValue}>{streak}</Text>
+              <Text style={styles.statLabel}>Day Streak</Text>
+            </LinearGradient>
+
+            {/* Stat 3 - Total Time */}
+            <LinearGradient
+              colors={["#4FACFE", "#00F2FE"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.statCard}
+            >
+              <Text style={styles.statEmoji}>⏱️</Text>
+              <Text style={styles.statValue}>{stats.totalMinutes}</Text>
+              <Text style={styles.statLabel}>Total Minutes</Text>
+            </LinearGradient>
+
+            {/* Stat 4 - Avg Completion */}
+            <LinearGradient
+              colors={["#43E97B", "#38F9D7"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.statCard}
+            >
+              <Text style={styles.statEmoji}>🎯</Text>
+              <Text style={styles.statValue}>{stats.avgCompletion}%</Text>
+              <Text style={styles.statLabel}>Avg Focus</Text>
+            </LinearGradient>
+          </View>
+        </Animatable.View>
+
+        {/* Main Action Button */}
+        <Animatable.View animation="fadeInUp" delay={400}>
+          <TouchableOpacity
+            style={styles.mainButton}
+            onPress={() => router.push("/focus-mode-selection")}
+            activeOpacity={0.9}
+          >
+            <LinearGradient
+              colors={["#667EEA", "#764BA2", "#F093FB"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.mainButtonGradient}
+            >
+              <Text style={styles.mainButtonIcon}>🚀</Text>
+              <Text style={styles.mainButtonText}>Start Focus Session</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animatable.View>
+
+        {/* Quick Actions */}
+        <Animatable.View animation="fadeInUp" delay={500}>
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={styles.quickAction}
+              onPress={() => router.push("/achievements")}
+            >
+              <LinearGradient
+                colors={["rgba(255,215,0,0.2)", "rgba(255,140,0,0.2)"]}
+                style={styles.quickActionGradient}
+              >
+                <Text style={styles.quickActionIcon}>🏆</Text>
+                <Text style={styles.quickActionText}>Achievements</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickAction}
+              onPress={() => router.push("/analytics")}
+            >
+              <LinearGradient
+                colors={["rgba(102,126,234,0.2)", "rgba(118,75,162,0.2)"]}
+                style={styles.quickActionGradient}
+              >
+                <Text style={styles.quickActionIcon}>📊</Text>
+                <Text style={styles.quickActionText}>Analytics</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickAction}
+              onPress={() => router.push("/app-selection")}
+            >
+              <LinearGradient
+                colors={["rgba(245,87,108,0.2)", "rgba(240,147,251,0.2)"]}
+                style={styles.quickActionGradient}
+              >
+                <Text style={styles.quickActionIcon}>🚫</Text>
+                <Text style={styles.quickActionText}>Block Apps</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </Animatable.View>
+
+        <View style={{ height: 30 }} />
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0077BE",
+  },
+  scrollContent: {
     padding: 20,
     paddingTop: 60,
   },
-  emoji: {
-    fontSize: 60,
-    textAlign: "center",
-    marginBottom: 10,
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 30,
   },
-  title: {
-    fontSize: 42,
+  greeting: {
+    fontSize: 16,
+    color: "rgba(255,255,255,0.6)",
+    marginBottom: 4,
+  },
+  username: {
+    fontSize: 28,
     fontWeight: "bold",
     color: "white",
-    textAlign: "center",
   },
-  subtitle: {
-    fontSize: 14,
-    color: "rgba(255,255,255,0.8)",
-    textAlign: "center",
-    marginBottom: 30,
+  profileButton: {
+    shadowColor: "#667EEA",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
   },
-  loadingText: {
-    color: "white",
-    marginTop: 15,
-    fontSize: 16,
-  },
-  quickStats: {
-    flexDirection: "row",
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 30,
-    justifyContent: "space-around",
-  },
-  statItem: {
+  profileGradient: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: "center",
     alignItems: "center",
+  },
+  profileEmoji: {
+    fontSize: 24,
+  },
+  goalCard: {
+    marginBottom: 25,
+  },
+  goalGradient: {
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  goalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 15,
+  },
+  goalTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "white",
+  },
+  editButton: {
+    color: "#667EEA",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  goalStats: {
+    alignItems: "center",
+    marginBottom: 15,
+  },
+  goalValue: {
+    fontSize: 36,
+    fontWeight: "bold",
+    color: "white",
+  },
+  goalLabel: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.6)",
+    marginTop: 4,
+  },
+  progressBarContainer: {
+    height: 8,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 8,
+  },
+  progressBar: {
+    height: "100%",
+    borderRadius: 4,
+  },
+  progressText: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    textAlign: "center",
+  },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 25,
+  },
+  statCard: {
+    width: (width - 52) / 2,
+    padding: 20,
+    borderRadius: 20,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  statEmoji: {
+    fontSize: 32,
+    marginBottom: 8,
   },
   statValue: {
     fontSize: 28,
     fontWeight: "bold",
     color: "white",
+    marginBottom: 4,
   },
   statLabel: {
     fontSize: 12,
-    color: "rgba(255,255,255,0.8)",
-    marginTop: 4,
+    color: "rgba(255,255,255,0.9)",
+    textAlign: "center",
   },
-  statDivider: {
-    width: 1,
-    backgroundColor: "rgba(255,255,255,0.3)",
+  mainButton: {
+    marginBottom: 30,
+    borderRadius: 20,
+    overflow: "hidden",
+    shadowColor: "#667EEA",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 15,
+    elevation: 10,
   },
-  startButton: {
-    backgroundColor: "white",
+  mainButtonGradient: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    padding: 20,
-    borderRadius: 16,
-    marginBottom: 30,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    paddingVertical: 20,
+    gap: 12,
   },
-  startButtonDisabled: {
-    backgroundColor: "#CCC",
+  mainButtonIcon: {
+    fontSize: 28,
   },
-  startButtonIcon: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  startButtonText: {
-    fontSize: 18,
+  mainButtonText: {
+    color: "white",
+    fontSize: 20,
     fontWeight: "bold",
-    color: "#0077BE",
+    letterSpacing: 0.5,
   },
-  activityBox: {
-    backgroundColor: "rgba(255,255,255,0.15)",
-    padding: 20,
-    borderRadius: 12,
-  },
-  activityTitle: {
-    fontSize: 16,
+  sectionTitle: {
+    fontSize: 20,
     fontWeight: "bold",
     color: "white",
+    marginBottom: 15,
+  },
+  quickActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  quickAction: {
+    flex: 1,
+  },
+  quickActionGradient: {
+    padding: 16,
+    borderRadius: 16,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  quickActionIcon: {
+    fontSize: 28,
     marginBottom: 8,
   },
-  activityText: {
-    fontSize: 14,
-    color: "rgba(255,255,255,0.9)",
-    lineHeight: 20,
+  quickActionText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
   },
 });

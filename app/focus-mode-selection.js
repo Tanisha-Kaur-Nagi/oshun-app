@@ -1,3 +1,3 @@
-import FocusModeSelectionScreen from "../src/screens/FocusModeSelectionScreen";
+import FocusModeSelectionScreen from '../src/screens/FocusModeSelectionScreen';
 
 export default FocusModeSelectionScreen;

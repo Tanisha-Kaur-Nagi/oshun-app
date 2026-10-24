@@ -1,769 +1,575 @@
-import React, { useMemo } from "react";
-import { Dimensions, ScrollView, StyleSheet, Text, View } from "react-native";
-import { BarChart, PieChart } from "react-native-gifted-charts";
-import { useApp } from "../context/AppContext";
+import React from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Dimensions,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Animatable from 'react-native-animatable';
+import { useApp } from '../context/AppContext';
+import { format } from 'date-fns';
 
-const { width } = Dimensions.get("window");
+const { width } = Dimensions.get('window');
+
+// Each bar gets its own unique gradient like the card in the reference image
+const BAR_GRADIENTS = [
+  ['#667EEA', '#764BA2'],
+  ['#F093FB', '#F5576C'],
+  ['#4FACFE', '#00F2FE'],
+  ['#43E97B', '#38F9D7'],
+  ['#FA709A', '#FEE140'],
+  ['#A18CD1', '#FBC2EB'],
+  ['#FF9A9E', '#FECFEF'],
+];
 
 export default function StatisticsScreen() {
-  const { stats, todayStats, sessions, rewards } = useApp();
+  const { stats, sessions, todayStats, streak, rewards } = useApp();
 
-  // Calculate weekly data (last 7 days)
-  const weeklyData = useMemo(() => {
-    const last7Days = [];
-    const today = new Date();
+  const last7Days = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - i));
+    return date;
+  });
 
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split("T")[0];
-
-      const daySessions = sessions.filter(
-        (s) => s.start_time.split("T")[0] === dateStr,
-      );
-
-      const totalMinutes = daySessions.reduce(
-        (sum, s) => sum + s.actual_duration,
-        0,
-      );
-
-      last7Days.push({
-        value: totalMinutes,
-        label: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getDay()],
-        frontColor: totalMinutes > 0 ? "#4CAF50" : "#E0E0E0",
-      });
-    }
-
-    return last7Days;
-  }, [sessions]);
-
-  // Calculate completion rate distribution
-  const completionDistribution = useMemo(() => {
-    const ranges = {
-      excellent: 0, // 90-100%
-      good: 0, // 70-89%
-      fair: 0, // 50-69%
-      poor: 0, // <50%
-    };
-
-    sessions.forEach((s) => {
-      const pct = s.completion_percentage;
-      if (pct >= 90) ranges.excellent++;
-      else if (pct >= 70) ranges.good++;
-      else if (pct >= 50) ranges.fair++;
-      else ranges.poor++;
-    });
-
-    return [
-      { value: ranges.excellent, color: "#4CAF50", text: "90-100%" },
-      { value: ranges.good, color: "#8BC34A", text: "70-89%" },
-      { value: ranges.fair, color: "#FFC107", text: "50-69%" },
-      { value: ranges.poor, color: "#F44336", text: "<50%" },
-    ].filter((item) => item.value > 0);
-  }, [sessions]);
-
-  // Focus modes distribution
-  const modeDistribution = useMemo(() => {
-    const modes = {};
-    sessions.forEach((s) => {
-      modes[s.focus_mode] = (modes[s.focus_mode] || 0) + 1;
-    });
-
-    const colors = [
-      "#2196F3",
-      "#4CAF50",
-      "#FF9800",
-      "#9C27B0",
-      "#F44336",
-      "#00BCD4",
-    ];
-    return Object.entries(modes).map(([mode, count], index) => ({
-      value: count,
-      color: colors[index % colors.length],
-      text: mode,
-    }));
-  }, [sessions]);
-
-  // Calculate streak
-  const currentStreak = useMemo(() => {
-    if (sessions.length === 0) return 0;
-
-    let streak = 0;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    for (let i = 0; i < 30; i++) {
-      const checkDate = new Date(today);
-      checkDate.setDate(checkDate.getDate() - i);
-      const dateStr = checkDate.toISOString().split("T")[0];
-
-      const hasSession = sessions.some(
-        (s) => s.start_time.split("T")[0] === dateStr,
-      );
-
-      if (hasSession) {
-        streak++;
-      } else if (i > 0) {
-        break;
-      }
-    }
-
-    return streak;
-  }, [sessions]);
-
-  // Recent sessions
-  const recentSessions = sessions.slice(0, 5);
-
-  // Best session
-  const bestSession = useMemo(() => {
-    if (sessions.length === 0) return null;
-    return sessions.reduce((best, current) =>
-      current.completion_percentage > best.completion_percentage
-        ? current
-        : best,
+  const chartData = last7Days.map((date, index) => {
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const daySessions = sessions.filter(
+      (s) => s.start_time && s.start_time.startsWith(dateStr)
     );
-  }, [sessions]);
+    const totalMinutes = daySessions.reduce((sum, s) => sum + s.actual_duration, 0);
+    return {
+      value: totalMinutes,
+      label: format(date, 'EEE'),
+      gradient: BAR_GRADIENTS[index],
+    };
+  });
+
+  const maxValue = Math.max(...chartData.map((d) => d.value), 60);
+
+  const modeColors = ['#667EEA', '#43E97B', '#F093FB', '#4FACFE'];
+
+  const focusModeMap = {};
+  sessions.forEach((s) => {
+    if (!focusModeMap[s.focus_mode]) focusModeMap[s.focus_mode] = 0;
+    focusModeMap[s.focus_mode]++;
+  });
+  const focusModes = Object.entries(focusModeMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
+
+  const bestSession = sessions.length > 0
+    ? sessions.reduce((best, s) =>
+        s.completion_percentage > best.completion_percentage ? s : best
+      , sessions[0])
+    : null;
+
+  const recentSessions = [...sessions]
+    .sort((a, b) => new Date(b.start_time) - new Date(a.start_time))
+    .slice(0, 4);
+
+  const excellent = sessions.filter((s) => s.completion_percentage >= 90).length;
+  const good = sessions.filter((s) => s.completion_percentage >= 70 && s.completion_percentage < 90).length;
+  const fair = sessions.filter((s) => s.completion_percentage >= 50 && s.completion_percentage < 70).length;
+  const poor = sessions.filter((s) => s.completion_percentage < 50).length;
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>📊 Statistics</Text>
-        <Text style={styles.subtitle}>Your focus journey at a glance</Text>
-      </View>
+    <LinearGradient
+      colors={['#0A0E27', '#1A1F3A', '#2D1B69']}
+      style={styles.container}
+    >
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Header */}
+        <Animatable.View animation="fadeInDown" style={styles.header}>
+          <Text style={styles.title}>📊 Statistics</Text>
+          <Text style={styles.subtitle}>Your focus journey at a glance</Text>
+        </Animatable.View>
 
-      {/* Key Metrics Cards */}
-      <View style={styles.metricsContainer}>
-        <MetricCard
-          icon="🔥"
-          value={currentStreak}
-          label="Day Streak"
-          color="#FF6B6B"
-        />
-        <MetricCard
-          icon="⏱️"
-          value={stats.totalMinutes}
-          label="Total Min"
-          color="#4ECDC4"
-        />
-        <MetricCard
-          icon="✅"
-          value={`${stats.avgCompletion}%`}
-          label="Avg Rate"
-          color="#95E1D3"
-        />
-        <MetricCard
-          icon="🌊"
-          value={rewards.length}
-          label="Rewards"
-          color="#FFD93D"
-        />
-      </View>
+        {/* 4 Stat Cards */}
+        <Animatable.View animation="fadeInUp" delay={200}>
+          <View style={styles.statsGrid}>
+            <LinearGradient
+              colors={['#667EEA', '#764BA2']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.statCard}
+            >
+              <Text style={styles.statEmoji}>🔥</Text>
+              <Text style={styles.statValue}>{streak}</Text>
+              <Text style={styles.statLabel}>Day Streak</Text>
+            </LinearGradient>
 
-      {/* Weekly Focus Chart */}
-      {sessions.length > 0 && (
-        <View style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <Text style={styles.chartTitle}>📈 Weekly Focus Time</Text>
-            <Text style={styles.chartSubtitle}>Last 7 days (minutes)</Text>
-          </View>
-          <View style={styles.chartContainer}>
-            <BarChart
-              data={weeklyData}
-              width={width - 80}
-              height={200}
-              barWidth={30}
-              spacing={12}
-              roundedTop
-              roundedBottom
-              hideRules
-              xAxisThickness={0}
-              yAxisThickness={0}
-              yAxisTextStyle={styles.chartAxisText}
-              noOfSections={4}
-              maxValue={Math.max(...weeklyData.map((d) => d.value)) + 20}
-            />
-          </View>
-        </View>
-      )}
+            <LinearGradient
+              colors={['#4FACFE', '#00F2FE']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.statCard}
+            >
+              <Text style={styles.statEmoji}>⏱️</Text>
+              <Text style={styles.statValue}>{stats.totalMinutes}</Text>
+              <Text style={styles.statLabel}>Total Min</Text>
+            </LinearGradient>
 
-      {/* Completion Rate Distribution */}
-      {completionDistribution.length > 0 && (
-        <View style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <Text style={styles.chartTitle}>
-              🎯 Completion Rate Distribution
-            </Text>
-            <Text style={styles.chartSubtitle}>Session quality breakdown</Text>
+            <LinearGradient
+              colors={['#43E97B', '#38F9D7']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.statCard}
+            >
+              <Text style={styles.statEmoji}>✅</Text>
+              <Text style={styles.statValue}>{stats.avgCompletion}%</Text>
+              <Text style={styles.statLabel}>Avg Rate</Text>
+            </LinearGradient>
+
+            <LinearGradient
+              colors={['#F093FB', '#F5576C']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.statCard}
+            >
+              <Text style={styles.statEmoji}>🌊</Text>
+              <Text style={styles.statValue}>{rewards.length}</Text>
+              <Text style={styles.statLabel}>Rewards</Text>
+            </LinearGradient>
           </View>
-          <View style={styles.pieChartContainer}>
-            <PieChart
-              data={completionDistribution}
-              donut
-              radius={80}
-              innerRadius={50}
-              centerLabelComponent={() => (
-                <View style={styles.pieCenter}>
-                  <Text style={styles.pieCenterValue}>{sessions.length}</Text>
-                  <Text style={styles.pieCenterLabel}>Sessions</Text>
-                </View>
-              )}
-            />
-            <View style={styles.pieLegend}>
-              {completionDistribution.map((item, index) => (
-                <View key={index} style={styles.legendItem}>
-                  <View
-                    style={[
-                      styles.legendColor,
-                      { backgroundColor: item.color },
-                    ]}
-                  />
-                  <Text style={styles.legendText}>
-                    {item.text}: {item.value}
-                  </Text>
-                </View>
-              ))}
+        </Animatable.View>
+
+        {/* Weekly Focus Time Chart - COLORFUL VERSION */}
+        <Animatable.View animation="fadeInUp" delay={300} style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>📈 Weekly Focus Time</Text>
+            <Text style={styles.sectionSubtitle}>Last 7 days (minutes)</Text>
+          </View>
+          <LinearGradient
+            colors={['rgba(20,20,50,0.9)', 'rgba(10,14,39,0.95)']}
+            style={styles.chartCard}
+          >
+            {/* Glow effect background */}
+            <View style={styles.chartGlowBg}>
+              <LinearGradient
+                colors={['rgba(102,126,234,0.08)', 'transparent']}
+                style={styles.chartGlow}
+              />
             </View>
-          </View>
-        </View>
-      )}
 
-      {/* Focus Modes Distribution */}
-      {modeDistribution.length > 0 && (
-        <View style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <Text style={styles.chartTitle}>📚 Focus Modes</Text>
-            <Text style={styles.chartSubtitle}>Your preferred modes</Text>
+            <View style={styles.barChart}>
+              {chartData.map((day, index) => {
+                const barHeight = maxValue > 0
+                  ? Math.max((day.value / maxValue) * 150, 6)
+                  : 6;
+                const isEmpty = day.value === 0;
+
+                return (
+                  <View key={index} style={styles.barColumn}>
+                    {/* Value label above bar */}
+                    <Text style={[
+                      styles.barValue,
+                      { color: isEmpty ? 'transparent' : 'white' }
+                    ]}>
+                      {day.value > 0 ? day.value : '0'}
+                    </Text>
+
+                    {/* Bar with glow */}
+                    <View style={styles.barWrapper}>
+                      {isEmpty ? (
+                        <View style={[styles.emptyBar, { height: 6 }]} />
+                      ) : (
+                        <View>
+                          {/* Glow shadow */}
+                          <View style={[
+                            styles.barGlow,
+                            {
+                              height: barHeight,
+                              backgroundColor: day.gradient[0],
+                              opacity: 0.25,
+                            }
+                          ]} />
+                          {/* Actual gradient bar */}
+                          <LinearGradient
+                            colors={day.gradient}
+                            start={{ x: 0, y: 1 }}
+                            end={{ x: 0, y: 0 }}
+                            style={[styles.bar, { height: barHeight }]}
+                          />
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Day label */}
+                    <Text style={styles.barLabel}>{day.label}</Text>
+                  </View>
+                );
+              })}
+            </View>
+
+            {/* Bottom legend */}
+            <View style={styles.chartLegend}>
+              <View style={styles.chartLegendLine} />
+              <Text style={styles.chartCaption}>minutes of focus per day</Text>
+              <View style={styles.chartLegendLine} />
+            </View>
+          </LinearGradient>
+        </Animatable.View>
+
+        {/* Completion Rate Distribution */}
+        <Animatable.View animation="fadeInUp" delay={400} style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>🎯 Completion Rate</Text>
+            <Text style={styles.sectionSubtitle}>Session quality breakdown</Text>
           </View>
-          <View style={styles.modeList}>
-            {modeDistribution.map((mode, index) => (
-              <View key={index} style={styles.modeItem}>
-                <View style={styles.modeLeft}>
-                  <View
-                    style={[styles.modeDot, { backgroundColor: mode.color }]}
-                  />
-                  <Text style={styles.modeText}>{mode.text}</Text>
+          <LinearGradient
+            colors={['rgba(102,126,234,0.15)', 'rgba(118,75,162,0.05)']}
+            style={styles.chartCard}
+          >
+            {sessions.length === 0 ? (
+              <Text style={styles.emptyChartText}>No sessions yet</Text>
+            ) : (
+              <View style={styles.donutRow}>
+                <View style={styles.donutContainer}>
+                  <View style={styles.donutOuter}>
+                    <LinearGradient
+                      colors={['#43E97B', '#667EEA', '#F093FB', '#F5576C']}
+                      style={styles.donutGradient}
+                    />
+                    <View style={styles.donutInner}>
+                      <Text style={styles.donutValue}>{sessions.length}</Text>
+                      <Text style={styles.donutLabel}>Sessions</Text>
+                    </View>
+                  </View>
                 </View>
-                <View style={styles.modeRight}>
-                  <View
-                    style={[
-                      styles.modeBar,
-                      {
-                        width: `${(mode.value / sessions.length) * 100}%`,
-                        backgroundColor: mode.color,
-                      },
-                    ]}
-                  />
-                  <Text style={styles.modeValue}>{mode.value}</Text>
+                <View style={styles.donutLegend}>
+                  {[
+                    { label: '90%+ Excellent', count: excellent, color: '#43E97B' },
+                    { label: '70-89% Good', count: good, color: '#667EEA' },
+                    { label: '50-69% Fair', count: fair, color: '#F093FB' },
+                    { label: '<50% Poor', count: poor, color: '#F5576C' },
+                  ].map((item, i) => (
+                    <View key={i} style={styles.legendRow}>
+                      <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+                      <Text style={styles.legendText}>{item.label}</Text>
+                      <Text style={[styles.legendCount, { color: item.color }]}>
+                        {item.count}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
               </View>
-            ))}
-          </View>
-        </View>
-      )}
+            )}
+          </LinearGradient>
+        </Animatable.View>
 
-      {/* Best Session Card */}
-      {bestSession && (
-        <View style={styles.bestSessionCard}>
-          <Text style={styles.bestSessionTitle}>🏆 Best Session</Text>
-          <View style={styles.bestSessionContent}>
-            <View style={styles.bestSessionLeft}>
-              <Text style={styles.bestSessionMode}>
-                {bestSession.focus_mode}
-              </Text>
-              <Text style={styles.bestSessionDate}>
-                {new Date(bestSession.start_time).toLocaleDateString()}
-              </Text>
+        {/* Focus Modes */}
+        {focusModes.length > 0 && (
+          <Animatable.View animation="fadeInUp" delay={500} style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>📚 Focus Modes</Text>
+              <Text style={styles.sectionSubtitle}>Your preferred modes</Text>
             </View>
-            <View style={styles.bestSessionRight}>
-              <Text style={styles.bestSessionPercentage}>
-                {Math.round(bestSession.completion_percentage)}%
-              </Text>
-              <Text style={styles.bestSessionDuration}>
-                {bestSession.actual_duration} min
-              </Text>
-            </View>
-          </View>
-        </View>
-      )}
+            <LinearGradient
+              colors={['rgba(102,126,234,0.15)', 'rgba(118,75,162,0.05)']}
+              style={styles.chartCard}
+            >
+              {focusModes.map(([mode, count], index) => {
+                const maxCount = focusModes[0][1];
+                const barWidth = (count / maxCount) * (width - 140);
+                return (
+                  <View key={index} style={styles.modeRow}>
+                    <View style={[styles.modeDot, { backgroundColor: modeColors[index] }]} />
+                    <Text style={styles.modeLabel}>{mode}</Text>
+                    <View style={styles.modeBarBg}>
+                      <View
+                        style={[
+                          styles.modeBar,
+                          { width: barWidth, backgroundColor: modeColors[index] },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[styles.modeCount, { color: modeColors[index] }]}>
+                      {count}
+                    </Text>
+                  </View>
+                );
+              })}
+            </LinearGradient>
+          </Animatable.View>
+        )}
 
-      {/* Recent Sessions */}
-      {recentSessions.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📝 Recent Sessions</Text>
-          {recentSessions.map((session) => (
-            <SessionCard key={session.session_id} session={session} />
-          ))}
-        </View>
-      )}
+        {/* Best Session */}
+        {bestSession && (
+          <Animatable.View animation="fadeInUp" delay={600} style={styles.section}>
+            <Text style={styles.sectionTitle}>🏆 Best Session</Text>
+            <LinearGradient
+              colors={['rgba(255,215,0,0.15)', 'rgba(255,140,0,0.08)']}
+              style={[styles.chartCard, styles.bestSessionCard]}
+            >
+              <View>
+                <Text style={styles.bestSessionMode}>{bestSession.focus_mode}</Text>
+                <Text style={styles.bestSessionDate}>
+                  {format(new Date(bestSession.start_time), 'dd/MM/yyyy')}
+                </Text>
+              </View>
+              <View style={styles.bestSessionRight}>
+                <Text style={styles.bestSessionPercent}>
+                  {Math.round(bestSession.completion_percentage)}%
+                </Text>
+                <Text style={styles.bestSessionDuration}>
+                  {bestSession.actual_duration} min
+                </Text>
+              </View>
+            </LinearGradient>
+          </Animatable.View>
+        )}
 
-      {/* Insights */}
-      <View style={styles.insightsCard}>
-        <Text style={styles.insightsTitle}>💡 Insights</Text>
-        <InsightsList
-          streak={currentStreak}
-          avgCompletion={stats.avgCompletion}
-          sessionCount={stats.sessionCount}
-          totalMinutes={stats.totalMinutes}
-        />
-      </View>
+        {/* Recent Sessions */}
+        {recentSessions.length > 0 && (
+          <Animatable.View animation="fadeInUp" delay={700} style={styles.section}>
+            <Text style={styles.sectionTitle}>📝 Recent Sessions</Text>
+            {recentSessions.map((session, index) => {
+              const completion = Math.round(session.completion_percentage);
+              const completionColor =
+                completion >= 90 ? '#43E97B'
+                : completion >= 70 ? '#667EEA'
+                : completion >= 50 ? '#F093FB'
+                : '#F5576C';
+              return (
+                <Animatable.View
+                  key={session.session_id || index}
+                  animation="fadeInRight"
+                  delay={100 * index}
+                >
+                  <LinearGradient
+                    colors={['rgba(255,255,255,0.05)', 'rgba(255,255,255,0.02)']}
+                    style={styles.sessionCard}
+                  >
+                    <View style={styles.sessionTop}>
+                      <Text style={styles.sessionMode}>{session.focus_mode}</Text>
+                      <Text style={[styles.sessionPercent, { color: completionColor }]}>
+                        {completion}%
+                      </Text>
+                    </View>
+                    <View style={styles.sessionMid}>
+                      <Text style={styles.sessionDuration}>
+                        {session.actual_duration} / {session.planned_duration} min
+                      </Text>
+                      <Text style={styles.sessionDate}>
+                        {format(new Date(session.start_time), 'dd/MM/yyyy')}
+                      </Text>
+                    </View>
+                    <View style={styles.sessionProgressBg}>
+                      <View
+                        style={[
+                          styles.sessionProgressFill,
+                          {
+                            width: `${Math.min(completion, 100)}%`,
+                            backgroundColor: completionColor,
+                          },
+                        ]}
+                      />
+                    </View>
+                  </LinearGradient>
+                </Animatable.View>
+              );
+            })}
+          </Animatable.View>
+        )}
 
-      {/* Empty State */}
-      {sessions.length === 0 && (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyEmoji}>📊</Text>
-          <Text style={styles.emptyTitle}>No Statistics Yet</Text>
-          <Text style={styles.emptyText}>
-            Complete your first focus session to see beautiful charts and
-            insights!
-          </Text>
-        </View>
-      )}
+        {/* Insights */}
+        <Animatable.View animation="fadeInUp" delay={800} style={styles.section}>
+          <Text style={styles.sectionTitle}>💡 Insights</Text>
+          <LinearGradient
+            colors={['rgba(102,126,234,0.15)', 'rgba(118,75,162,0.05)']}
+            style={styles.chartCard}
+          >
+            {sessions.length < 3 ? (
+              <View style={styles.insightRow}>
+                <Text style={styles.insightEmoji}>🌱</Text>
+                <Text style={styles.insightText}>
+                  Keep focusing to unlock insights!
+                </Text>
+              </View>
+            ) : (
+              <>
+                {streak >= 3 && (
+                  <View style={styles.insightRow}>
+                    <Text style={styles.insightEmoji}>🔥</Text>
+                    <Text style={styles.insightText}>
+                      {streak} day streak! You're building great habits.
+                    </Text>
+                  </View>
+                )}
+                {stats.avgCompletion >= 80 && (
+                  <View style={styles.insightRow}>
+                    <Text style={styles.insightEmoji}>🎯</Text>
+                    <Text style={styles.insightText}>
+                      {stats.avgCompletion}% avg completion. Excellent!
+                    </Text>
+                  </View>
+                )}
+                {stats.totalMinutes >= 100 && (
+                  <View style={styles.insightRow}>
+                    <Text style={styles.insightEmoji}>🏆</Text>
+                    <Text style={styles.insightText}>
+                      {stats.totalMinutes} total minutes focused. Keep going!
+                    </Text>
+                  </View>
+                )}
+                {sessions.length >= 5 && (
+                  <View style={styles.insightRow}>
+                    <Text style={styles.insightEmoji}>📈</Text>
+                    <Text style={styles.insightText}>
+                      {sessions.length} sessions completed. You're on a roll!
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+          </LinearGradient>
+        </Animatable.View>
 
-      <View style={{ height: 100 }} />
-    </ScrollView>
-  );
-}
-
-// Metric Card Component
-function MetricCard({ icon, value, label, color }) {
-  return (
-    <View style={[styles.metricCard, { borderLeftColor: color }]}>
-      <Text style={styles.metricIcon}>{icon}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricLabel}>{label}</Text>
-    </View>
-  );
-}
-
-// Session Card Component
-function SessionCard({ session }) {
-  const getColor = (percentage) => {
-    if (percentage >= 90) return "#4CAF50";
-    if (percentage >= 70) return "#8BC34A";
-    if (percentage >= 50) return "#FFC107";
-    return "#F44336";
-  };
-
-  return (
-    <View style={styles.sessionCard}>
-      <View style={styles.sessionHeader}>
-        <Text style={styles.sessionMode}>{session.focus_mode}</Text>
-        <Text
-          style={[
-            styles.sessionPercentage,
-            { color: getColor(session.completion_percentage) },
-          ]}
-        >
-          {Math.round(session.completion_percentage)}%
-        </Text>
-      </View>
-      <View style={styles.sessionDetails}>
-        <Text style={styles.sessionText}>
-          {session.actual_duration} / {session.planned_duration} min
-        </Text>
-        <Text style={styles.sessionDate}>
-          {new Date(session.start_time).toLocaleDateString()}
-        </Text>
-      </View>
-      <View style={styles.progressBar}>
-        <View
-          style={[
-            styles.progressFill,
-            {
-              width: `${session.completion_percentage}%`,
-              backgroundColor: getColor(session.completion_percentage),
-            },
-          ]}
-        />
-      </View>
-    </View>
-  );
-}
-
-// Insights List Component
-function InsightsList({ streak, avgCompletion, sessionCount, totalMinutes }) {
-  const insights = [];
-
-  if (streak >= 7) {
-    insights.push({
-      icon: "🔥",
-      text: `Amazing ${streak}-day streak! You're on fire!`,
-    });
-  } else if (streak >= 3) {
-    insights.push({ icon: "💪", text: `${streak}-day streak! Keep it going!` });
-  }
-
-  if (avgCompletion >= 90) {
-    insights.push({
-      icon: "⭐",
-      text: "Excellent focus consistency! You're a master!",
-    });
-  } else if (avgCompletion >= 70) {
-    insights.push({
-      icon: "👍",
-      text: "Great completion rate! You're doing well!",
-    });
-  }
-
-  if (totalMinutes >= 300) {
-    insights.push({
-      icon: "🎯",
-      text: `${totalMinutes} minutes of pure focus. Incredible!`,
-    });
-  }
-
-  if (sessionCount >= 20) {
-    insights.push({
-      icon: "🏆",
-      text: `${sessionCount} sessions completed! You're dedicated!`,
-    });
-  }
-
-  if (insights.length === 0) {
-    insights.push({ icon: "🌱", text: "Keep focusing to unlock insights!" });
-  }
-
-  return (
-    <View style={styles.insightsList}>
-      {insights.map((insight, index) => (
-        <View key={index} style={styles.insightItem}>
-          <Text style={styles.insightIcon}>{insight.icon}</Text>
-          <Text style={styles.insightText}>{insight.text}</Text>
-        </View>
-      ))}
-    </View>
+        <View style={{ height: 50 }} />
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F8F9FA",
-  },
-  header: {
-    backgroundColor: "#0077BE",
-    padding: 20,
-    paddingTop: 60,
-    paddingBottom: 30,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "white",
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "rgba(255,255,255,0.9)",
-  },
-  metricsContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    padding: 16,
-    gap: 12,
-  },
-  metricCard: {
-    flex: 1,
-    minWidth: (width - 48) / 2,
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 16,
-    alignItems: "center",
-    borderLeftWidth: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  metricIcon: {
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  metricValue: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 4,
-  },
-  metricLabel: {
-    fontSize: 12,
-    color: "#666",
-    textAlign: "center",
-  },
+  container: { flex: 1 },
+  scrollContent: { padding: 20, paddingTop: 60 },
+  header: { alignItems: 'center', marginBottom: 25 },
+  title: { fontSize: 30, fontWeight: 'bold', color: 'white', marginBottom: 6 },
+  subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.5)', letterSpacing: 1 },
+
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 25 },
+  statCard: { width: (width - 52) / 2, padding: 20, borderRadius: 20, alignItems: 'center' },
+  statEmoji: { fontSize: 30, marginBottom: 8 },
+  statValue: { fontSize: 26, fontWeight: 'bold', color: 'white', marginBottom: 4 },
+  statLabel: { fontSize: 12, color: 'rgba(255,255,255,0.85)', textAlign: 'center' },
+
+  section: { marginBottom: 22 },
+  sectionHeader: { marginBottom: 12 },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: 'white', marginBottom: 2 },
+  sectionSubtitle: { fontSize: 12, color: 'rgba(255,255,255,0.4)' },
+
   chartCard: {
-    backgroundColor: "white",
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
   },
-  chartHeader: {
-    marginBottom: 20,
+
+  chartGlowBg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  chartGlow: { flex: 1 },
+
+  barChart: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    height: 180,
+    paddingTop: 20,
   },
-  chartTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 4,
-  },
-  chartSubtitle: {
-    fontSize: 13,
-    color: "#999",
-  },
-  chartContainer: {
-    alignItems: "center",
-  },
-  chartAxisText: {
-    fontSize: 10,
-    color: "#999",
-  },
-  pieChartContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-  },
-  pieCenter: {
-    alignItems: "center",
-  },
-  pieCenterValue: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  pieCenterLabel: {
-    fontSize: 12,
-    color: "#999",
-  },
-  pieLegend: {
-    gap: 8,
-  },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  legendColor: {
-    width: 12,
-    height: 12,
+  barColumn: { alignItems: 'center', flex: 1 },
+  barValue: { fontSize: 10, fontWeight: 'bold', marginBottom: 5 },
+  barWrapper: { alignItems: 'center', justifyContent: 'flex-end', width: 30 },
+  emptyBar: {
+    width: 30,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 6,
   },
-  legendText: {
-    fontSize: 13,
-    color: "#666",
+  barGlow: {
+    position: 'absolute',
+    width: 30,
+    borderRadius: 8,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 0,
+    transform: [{ scaleX: 1.4 }],
   },
-  modeList: {
-    gap: 12,
+  bar: { width: 30, borderRadius: 8, zIndex: 1 },
+  barLabel: { fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 8 },
+
+  chartLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    gap: 8,
   },
-  modeItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  modeLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+  chartLegendLine: {
     flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
-  modeDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  modeText: {
+  chartCaption: { fontSize: 11, color: 'rgba(255,255,255,0.35)', textAlign: 'center' },
+
+  emptyChartText: {
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
     fontSize: 14,
-    color: "#333",
-    fontWeight: "500",
+    paddingVertical: 20,
   },
-  modeRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flex: 1,
+
+  donutRow: { flexDirection: 'row', alignItems: 'center' },
+  donutContainer: { alignItems: 'center', justifyContent: 'center', marginRight: 20 },
+  donutOuter: {
+    width: 110, height: 110, borderRadius: 55,
+    overflow: 'hidden', alignItems: 'center', justifyContent: 'center',
   },
-  modeBar: {
-    height: 8,
-    borderRadius: 4,
+  donutGradient: { position: 'absolute', width: '100%', height: '100%' },
+  donutInner: {
+    width: 74, height: 74, borderRadius: 37,
+    backgroundColor: '#1A1F3A', alignItems: 'center', justifyContent: 'center',
   },
-  modeValue: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#666",
-    minWidth: 20,
-    textAlign: "right",
+  donutValue: { fontSize: 22, fontWeight: 'bold', color: 'white' },
+  donutLabel: { fontSize: 10, color: 'rgba(255,255,255,0.6)' },
+  donutLegend: { flex: 1 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  legendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+  legendText: { flex: 1, fontSize: 12, color: 'rgba(255,255,255,0.7)' },
+  legendCount: { fontSize: 13, fontWeight: 'bold' },
+
+  modeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  modeDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+  modeLabel: { fontSize: 13, color: 'rgba(255,255,255,0.8)', width: 70 },
+  modeBarBg: {
+    flex: 1, height: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 4, marginHorizontal: 8, overflow: 'hidden',
   },
+  modeBar: { height: 8, borderRadius: 4 },
+  modeCount: { fontSize: 13, fontWeight: 'bold', width: 20, textAlign: 'right' },
+
   bestSessionCard: {
-    backgroundColor: "white",
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 2,
-    borderColor: "#FFD700",
-    shadowColor: "#FFD700",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', borderColor: 'rgba(255,215,0,0.3)',
   },
-  bestSessionTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 12,
-  },
-  bestSessionContent: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  bestSessionLeft: {
-    flex: 1,
-  },
-  bestSessionMode: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 4,
-  },
-  bestSessionDate: {
-    fontSize: 13,
-    color: "#999",
-  },
-  bestSessionRight: {
-    alignItems: "flex-end",
-  },
-  bestSessionPercentage: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#4CAF50",
-  },
-  bestSessionDuration: {
-    fontSize: 13,
-    color: "#666",
-    marginTop: 2,
-  },
-  section: {
-    padding: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 12,
-  },
+  bestSessionMode: { fontSize: 18, fontWeight: 'bold', color: 'white', marginBottom: 4 },
+  bestSessionDate: { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
+  bestSessionRight: { alignItems: 'flex-end' },
+  bestSessionPercent: { fontSize: 28, fontWeight: 'bold', color: '#43E97B' },
+  bestSessionDuration: { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
+
   sessionCard: {
-    backgroundColor: "white",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderRadius: 16, padding: 14, marginBottom: 10,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
   },
-  sessionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
+  sessionTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  sessionMode: { fontSize: 15, fontWeight: '600', color: 'white' },
+  sessionPercent: { fontSize: 15, fontWeight: 'bold' },
+  sessionMid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  sessionDuration: { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
+  sessionDate: { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
+  sessionProgressBg: {
+    height: 4, backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 2, overflow: 'hidden',
   },
-  sessionMode: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-  },
-  sessionPercentage: {
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  sessionDetails: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  sessionText: {
-    fontSize: 13,
-    color: "#666",
-  },
-  sessionDate: {
-    fontSize: 13,
-    color: "#999",
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: "#E0E0E0",
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: 3,
-  },
-  insightsCard: {
-    backgroundColor: "white",
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  insightsTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 12,
-  },
-  insightsList: {
-    gap: 12,
-  },
-  insightItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "#F8F9FA",
-    padding: 12,
-    borderRadius: 12,
-  },
-  insightIcon: {
-    fontSize: 24,
-  },
-  insightText: {
-    flex: 1,
-    fontSize: 14,
-    color: "#333",
-    lineHeight: 20,
-  },
-  emptyState: {
-    alignItems: "center",
-    padding: 40,
-    marginTop: 60,
-  },
-  emptyEmoji: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#666",
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: "#999",
-    textAlign: "center",
-    lineHeight: 20,
-  },
+  sessionProgressFill: { height: 4, borderRadius: 2 },
+
+  insightRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  insightEmoji: { fontSize: 24, marginRight: 12 },
+  insightText: { flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.8)', lineHeight: 20 },
 });

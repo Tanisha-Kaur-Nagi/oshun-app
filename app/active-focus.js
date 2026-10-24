@@ -1,3 +1,3 @@
-import ActiveFocusScreen from "../src/screens/ActiveFocusScreen";
+import ActiveFocusScreen from '../src/screens/ActiveFocusScreen';
 
 export default ActiveFocusScreen;

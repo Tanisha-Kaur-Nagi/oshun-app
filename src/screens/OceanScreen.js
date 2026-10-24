@@ -1,554 +1,437 @@
-import React, { useEffect, useRef } from "react";
+import React, { useRef, useEffect } from 'react';
 import {
-    Animated,
-    Dimensions,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View
-} from "react-native";
-import { useApp } from "../context/AppContext";
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Dimensions,
+  Animated,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Animatable from 'react-native-animatable';
+import { useApp } from '../context/AppContext';
 
-const { width, height } = Dimensions.get("window");
+const { width, height } = Dimensions.get('window');
 
-export default function OceanScreen() {
-  const { rewards, stats, sessions } = useApp();
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const floatAnim = useRef(new Animated.Value(0)).current;
+// Bubble component — each bubble floats up independently
+function Bubble({ size, left, delay, duration }) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Fade in animation
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 1000,
-      useNativeDriver: true,
-    }).start();
+    const animate = () => {
+      translateY.setValue(0);
+      opacity.setValue(0);
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.parallel([
+          Animated.timing(translateY, {
+            toValue: -height * 0.6,
+            duration: duration,
+            useNativeDriver: true,
+          }),
+          Animated.sequence([
+            Animated.timing(opacity, { toValue: 0.7, duration: 400, useNativeDriver: true }),
+            Animated.timing(opacity, { toValue: 0.7, duration: duration - 800, useNativeDriver: true }),
+            Animated.timing(opacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+          ]),
+        ]),
+      ]).start(() => animate());
+    };
+    animate();
+  }, []);
 
-    // Floating animation for bubbles
+  return (
+    <Animated.View
+      style={{
+        position: 'absolute',
+        bottom: 60,
+        left,
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: 'rgba(150,220,255,0.35)',
+        borderWidth: 1,
+        borderColor: 'rgba(200,240,255,0.5)',
+        transform: [{ translateY }],
+        opacity,
+      }}
+    />
+  );
+}
+
+// Light Ray component
+function LightRay({ left, opacity: opacityVal, width: rayWidth, delay }) {
+  const anim = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim, {
-          toValue: -20,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(floatAnim, {
-          toValue: 0,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-      ]),
+        Animated.timing(anim, { toValue: opacityVal, duration: 2500 + delay, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.1, duration: 2500 + delay, useNativeDriver: true }),
+      ])
     ).start();
   }, []);
 
-  // Group rewards by level
-  const rewardsByLevel = {
-    full: rewards.filter((r) => r.reward_level === "full"),
-    medium: rewards.filter((r) => r.reward_level === "medium"),
-    small: rewards.filter((r) => r.reward_level === "small"),
-  };
+  return (
+    <Animated.View
+      style={{
+        position: 'absolute',
+        top: 0,
+        left,
+        width: rayWidth,
+        height: height * 0.65,
+        opacity: anim,
+        transform: [{ skewX: '8deg' }],
+      }}
+    >
+      <LinearGradient
+        colors={['rgba(120,200,255,0.35)', 'rgba(60,140,220,0.08)', 'transparent']}
+        style={{ flex: 1 }}
+      />
+    </Animated.View>
+  );
+}
 
-  const totalRewards = rewards.length;
-  const oceanLevel = Math.min(Math.floor(totalRewards / 5) + 1, 10);
+// Floating creature card (unlocked)
+function CreatureCard({ icon, name, count, index }) {
+  return (
+    <Animatable.View
+      animation="bounceIn"
+      delay={index * 80}
+      style={styles.creatureCard}
+    >
+      <LinearGradient
+        colors={['rgba(0,180,255,0.25)', 'rgba(0,80,180,0.35)']}
+        style={styles.creatureGradient}
+      >
+        <Animatable.Text
+          animation="swing"
+          iterationCount="infinite"
+          duration={2000 + index * 300}
+          style={styles.creatureIcon}
+        >
+          {icon}
+        </Animatable.Text>
+        {count > 1 && (
+          <View style={styles.countBadge}>
+            <Text style={styles.countText}>×{count}</Text>
+          </View>
+        )}
+        <Text style={styles.creatureName}>{name}</Text>
+      </LinearGradient>
+    </Animatable.View>
+  );
+}
+
+// Locked creature card
+function LockedCard({ name, unlockAt, index }) {
+  return (
+    <Animatable.View animation="fadeIn" delay={index * 60} style={styles.creatureCard}>
+      <View style={styles.lockedGradient}>
+        <Text style={styles.lockIcon}>🔒</Text>
+        <Text style={styles.lockedName}>{name}</Text>
+        <Text style={styles.unlockHint}>at {unlockAt} 🎁</Text>
+      </View>
+    </Animatable.View>
+  );
+}
+
+export default function OceanScreen() {
+  const { rewards } = useApp();
+
+  const oceanLevel = Math.min(Math.floor(rewards.length / 3) + 1, 10);
+  const fullCorals = rewards.filter((r) => r.reward_level === 'full').length;
+  const mediumCorals = rewards.filter((r) => r.reward_level === 'medium').length;
+  const smallCorals = rewards.filter((r) => r.reward_level === 'small').length;
+  const marineLife = rewards.length;
+
+  const nextLevel = oceanLevel * 3 + 2;
+  const progressPct = Math.min((rewards.length / nextLevel) * 100, 100);
+
+  const ecosystemElements = [
+    { icon: '🌺', name: 'Full Coral',     count: fullCorals,   unlockAt: 0  },
+    { icon: '🪸', name: 'Medium Coral',   count: mediumCorals, unlockAt: 0  },
+    { icon: '🌱', name: 'Small Coral',    count: smallCorals,  unlockAt: 0  },
+    { icon: '🦀', name: 'Crab',           count: rewards.length >= 7  ? 1 : 0, unlockAt: 7  },
+    { icon: '⭐', name: 'Starfish',       count: rewards.length >= 10 ? 1 : 0, unlockAt: 10 },
+    { icon: '🐠', name: 'Tropical Fish',  count: rewards.length >= 5  ? 1 : 0, unlockAt: 5  },
+    { icon: '🐟', name: 'Ocean Fish',     count: rewards.length >= 8  ? 1 : 0, unlockAt: 8  },
+    { icon: '🐡', name: 'Pufferfish',     count: rewards.length >= 12 ? 1 : 0, unlockAt: 12 },
+    { icon: '🦑', name: 'Squid',          count: rewards.length >= 14 ? 1 : 0, unlockAt: 14 },
+    { icon: '🦈', name: 'Shark',          count: rewards.length >= 15 ? 1 : 0, unlockAt: 15 },
+    { icon: '🐙', name: 'Octopus',        count: rewards.length >= 20 ? 1 : 0, unlockAt: 20 },
+    { icon: '🐬', name: 'Dolphin',        count: rewards.length >= 25 ? 1 : 0, unlockAt: 25 },
+    { icon: '🐳', name: 'Whale',          count: rewards.length >= 30 ? 1 : 0, unlockAt: 30 },
+  ];
+
+  const unlocked = ecosystemElements.filter((e) => rewards.length >= e.unlockAt && e.count > 0);
+  const locked   = ecosystemElements.filter((e) => rewards.length < e.unlockAt || e.count === 0);
+
+  const bubbles = [
+    { size: 8,  left: 30,         delay: 0,    duration: 6000 },
+    { size: 5,  left: 80,         delay: 1200, duration: 5500 },
+    { size: 10, left: 140,        delay: 600,  duration: 7000 },
+    { size: 6,  left: 200,        delay: 2000, duration: 5000 },
+    { size: 8,  left: width-60,   delay: 300,  duration: 6500 },
+    { size: 5,  left: width-120,  delay: 1800, duration: 5800 },
+    { size: 7,  left: width/2,    delay: 900,  duration: 6200 },
+    { size: 4,  left: width/2+40, delay: 2500, duration: 5200 },
+  ];
+
+  const lightRays = [
+    { left: -20,        opacity: 0.4, width: 90,  delay: 0    },
+    { left: 60,         opacity: 0.3, width: 60,  delay: 800  },
+    { left: 150,        opacity: 0.5, width: 110, delay: 400  },
+    { left: width-180,  opacity: 0.35,width: 80,  delay: 1200 },
+    { left: width-80,   opacity: 0.4, width: 100, delay: 200  },
+  ];
 
   return (
     <View style={styles.container}>
-      {/* Animated Ocean Background */}
-      <Animated.View
-        style={[
-          styles.oceanBackground,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: floatAnim }],
-          },
-        ]}
-      >
-        <Text style={styles.bubbles}>○ ○ ○</Text>
-        <Text style={[styles.bubbles, { top: 100, left: width * 0.7 }]}>
-          ○ ○
-        </Text>
-        <Text style={[styles.bubbles, { top: 150, left: width * 0.3 }]}>○</Text>
-      </Animated.View>
 
+      {/* ── OCEAN BACKGROUND ── */}
+      <LinearGradient
+        colors={['#020B18', '#041830', '#062848', '#083860', '#0A4878']}
+        locations={[0, 0.2, 0.45, 0.7, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* Light Rays from surface */}
+      {lightRays.map((r, i) => (
+        <LightRay key={i} {...r} />
+      ))}
+
+      {/* Floating Bubbles */}
+      {bubbles.map((b, i) => (
+        <Bubble key={i} {...b} />
+      ))}
+
+      {/* Sea floor gradient */}
+      <LinearGradient
+        colors={['transparent', 'rgba(2,8,20,0.85)']}
+        style={styles.seaFloor}
+      />
+
+      {/* ── SCROLLABLE CONTENT ── */}
       <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header with Ocean Level */}
-        <Animated.View style={[styles.header, { opacity: fadeAnim }]}>
-          <Text style={styles.title}>🌊 Your Ocean Ecosystem</Text>
-          <View style={styles.levelBadge}>
-            <Text style={styles.levelText}>Level {oceanLevel}</Text>
-          </View>
-          <Text style={styles.subtitle}>
-            {totalRewards === 0
-              ? "Your ocean awaits..."
-              : totalRewards === 1
-                ? "1 coral blooming in your ocean"
-                : `${totalRewards} corals blooming in your ocean`}
-          </Text>
-        </Animated.View>
+        {/* Header */}
+        <Animatable.View animation="fadeInDown" style={styles.header}>
+          <Text style={styles.title}>🌊 Your Ocean</Text>
+          <Text style={styles.subtitle}>Build your ecosystem through focus</Text>
+        </Animatable.View>
 
-        {/* Ocean Stats Card */}
-        <Animated.View style={[styles.statsCard, { opacity: fadeAnim }]}>
-          <View style={styles.statsHeader}>
-            <Text style={styles.statsTitle}>🐠 Ocean Vitality</Text>
-          </View>
-          <View style={styles.statsGrid}>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>{totalRewards}</Text>
-              <Text style={styles.statLabel}>Corals</Text>
+        {/* Ocean Level Card */}
+        <Animatable.View animation="fadeInUp" delay={150} style={styles.levelCard}>
+          <LinearGradient
+            colors={['rgba(0,140,255,0.35)', 'rgba(0,60,160,0.5)']}
+            style={styles.levelGradient}
+          >
+            {/* Glow circle */}
+            <View style={styles.levelGlowCircle}>
+              <Text style={styles.levelNumber}>{oceanLevel}</Text>
             </View>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>{sessions.length}</Text>
-              <Text style={styles.statLabel}>Sessions</Text>
-            </View>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>
-                {Math.round(stats.avgCompletion)}%
-              </Text>
-              <Text style={styles.statLabel}>Avg Focus</Text>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* Ocean Floor - Main Coral Display */}
-        <View style={styles.oceanFloor}>
-          {totalRewards > 0 ? (
-            <>
-              {/* Full Corals */}
-              {rewardsByLevel.full.length > 0 && (
-                <CoralSection
-                  title="Magnificent Coral Reefs"
-                  emoji="🌺"
-                  corals={rewardsByLevel.full}
-                  color="#FFE5E5"
-                  delay={100}
+            <View style={styles.levelInfo}>
+              <Text style={styles.levelTitle}>Ocean Level {oceanLevel}</Text>
+              <Text style={styles.levelSub}>{rewards.length} / {nextLevel} rewards collected</Text>
+              {/* Progress bar */}
+              <View style={styles.progressBarBg}>
+                <Animatable.View
+                  animation="slideInLeft"
+                  delay={400}
+                  style={[styles.progressBarFill, { width: `${progressPct}%` }]}
                 />
-              )}
-
-              {/* Medium Corals */}
-              {rewardsByLevel.medium.length > 0 && (
-                <CoralSection
-                  title="Growing Corals"
-                  emoji="🪸"
-                  corals={rewardsByLevel.medium}
-                  color="#FFF3E0"
-                  delay={200}
-                />
-              )}
-
-              {/* Small Corals */}
-              {rewardsByLevel.small.length > 0 && (
-                <CoralSection
-                  title="Young Coral Sprouts"
-                  emoji="🌱"
-                  corals={rewardsByLevel.small}
-                  color="#E8F5E9"
-                  delay={300}
-                />
-              )}
-
-              {/* Marine Life Decoration */}
-              <View style={styles.marineLife}>
-                <Text style={styles.marineText}>🐠 🐡 🦀 🐚 🦑 🐙 🦈 🐟</Text>
               </View>
-            </>
-          ) : (
-            <EmptyOcean />
-          )}
-        </View>
-
-        {/* Motivational Message */}
-        <View style={styles.motivationCard}>
-          <Text style={styles.motivationText}>
-            {totalRewards === 0
-              ? "🌊 Complete focus sessions to start growing your ocean ecosystem!"
-              : totalRewards < 5
-                ? "🌱 Your ocean is taking shape! Keep focusing to add more life."
-                : totalRewards < 10
-                  ? "🪸 Beautiful! Your coral reef is flourishing!"
-                  : totalRewards < 20
-                    ? "🌺 Amazing ecosystem! You're a focus master!"
-                    : "🏆 Legendary ocean builder! Your focus is incredible!"}
-          </Text>
-        </View>
-
-        {/* Achievement Badges */}
-        {totalRewards > 0 && (
-          <View style={styles.achievementsSection}>
-            <Text style={styles.achievementsTitle}>🏆 Achievements</Text>
-            <View style={styles.badgesContainer}>
-              {totalRewards >= 1 && (
-                <AchievementBadge title="First Coral" emoji="🌱" />
-              )}
-              {totalRewards >= 5 && (
-                <AchievementBadge title="Reef Builder" emoji="🪸" />
-              )}
-              {totalRewards >= 10 && (
-                <AchievementBadge title="Ocean Master" emoji="🌺" />
-              )}
-              {totalRewards >= 20 && (
-                <AchievementBadge title="Marine Legend" emoji="🏆" />
-              )}
-              {stats.avgCompletion >= 80 && (
-                <AchievementBadge title="Focus Expert" emoji="🎯" />
-              )}
-              {sessions.length >= 10 && (
-                <AchievementBadge title="Dedicated" emoji="💪" />
-              )}
+              <Text style={styles.progressPct}>{Math.round(progressPct)}% to next level</Text>
             </View>
-          </View>
+          </LinearGradient>
+        </Animatable.View>
+
+        {/* Stats Row */}
+        <Animatable.View animation="fadeInUp" delay={250} style={styles.statsRow}>
+          {[
+            { icon: '🎯', value: rewards.length, label: 'Total Rewards',  colors: ['rgba(0,160,255,0.3)','rgba(0,80,200,0.4)']  },
+            { icon: '🌺', value: fullCorals,      label: 'Full Corals',    colors: ['rgba(240,100,200,0.3)','rgba(160,40,180,0.4)'] },
+            { icon: '🐠', value: unlocked.filter(e=>e.unlockAt>0).length, label: 'Marine Life', colors: ['rgba(0,200,160,0.3)','rgba(0,120,100,0.4)'] },
+          ].map((s, i) => (
+            <Animatable.View key={i} animation="zoomIn" delay={300 + i * 100}>
+              <LinearGradient colors={s.colors} style={styles.statCard}>
+                <Text style={styles.statIcon}>{s.icon}</Text>
+                <Text style={styles.statValue}>{s.value}</Text>
+                <Text style={styles.statLabel}>{s.label}</Text>
+              </LinearGradient>
+            </Animatable.View>
+          ))}
+        </Animatable.View>
+
+        {/* ── UNLOCKED CREATURES ── */}
+        {unlocked.length > 0 && (
+          <Animatable.View animation="fadeInUp" delay={350}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>✨ Your Collection</Text>
+              <View style={styles.sectionBadge}>
+                <Text style={styles.sectionBadgeText}>{unlocked.length} unlocked</Text>
+              </View>
+            </View>
+            <View style={styles.creaturesGrid}>
+              {unlocked.map((el, i) => (
+                <CreatureCard key={i} index={i} icon={el.icon} name={el.name} count={el.count} />
+              ))}
+            </View>
+          </Animatable.View>
         )}
 
-        <View style={{ height: 100 }} />
+        {/* ── LOCKED CREATURES ── */}
+        {locked.length > 0 && (
+          <Animatable.View animation="fadeInUp" delay={450}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>🔒 Still Locked</Text>
+              <View style={[styles.sectionBadge, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+                <Text style={styles.sectionBadgeText}>{locked.length} remaining</Text>
+              </View>
+            </View>
+            <View style={styles.creaturesGrid}>
+              {locked.map((el, i) => (
+                <LockedCard key={i} index={i} name={el.name} unlockAt={el.unlockAt} />
+              ))}
+            </View>
+          </Animatable.View>
+        )}
+
+        {/* Empty State */}
+        {rewards.length === 0 && (
+          <Animatable.View animation="fadeIn" delay={300} style={styles.emptyState}>
+            <Animatable.Text animation="pulse" iterationCount="infinite" style={styles.emptyEmoji}>
+              🌊
+            </Animatable.Text>
+            <Text style={styles.emptyTitle}>Your Ocean Awaits</Text>
+            <Text style={styles.emptyText}>
+              Complete focus sessions to start building your ocean ecosystem.
+              Each session earns coral rewards based on your focus quality!
+            </Text>
+          </Animatable.View>
+        )}
+
+        {/* Next Unlock Tip */}
+        {rewards.length > 0 && (
+          <Animatable.View animation="fadeInUp" delay={500}>
+            <LinearGradient
+              colors={['rgba(0,140,255,0.15)', 'rgba(0,60,160,0.2)']}
+              style={styles.tipCard}
+            >
+              <Text style={styles.tipIcon}>💡</Text>
+              <Text style={styles.tipText}>
+                {rewards.length < 5
+                  ? `${5 - rewards.length} more rewards to unlock Tropical Fish! 🐠`
+                  : rewards.length < 10
+                  ? `${10 - rewards.length} more rewards to unlock Starfish! ⭐`
+                  : rewards.length < 15
+                  ? `${15 - rewards.length} more rewards to unlock Shark! 🦈`
+                  : rewards.length < 25
+                  ? `${25 - rewards.length} more rewards to unlock Dolphin! 🐬`
+                  : 'Amazing ocean! Keep focusing to reach max level! 🐳'}
+              </Text>
+            </LinearGradient>
+          </Animatable.View>
+        )}
+
+        <View style={{ height: 80 }} />
       </ScrollView>
     </View>
   );
 }
 
-// Coral Section Component
-function CoralSection({ title, emoji, corals, color, delay }) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 600,
-      delay: delay,
-      useNativeDriver: true,
-    }).start();
-  }, []);
-
-  return (
-    <Animated.View style={[styles.coralSection, { opacity: fadeAnim }]}>
-      <Text style={styles.coralSectionTitle}>
-        {emoji} {title} ({corals.length})
-      </Text>
-      <View style={styles.coralGrid}>
-        {corals.map((coral, index) => (
-          <CoralCard
-            key={coral.reward_id}
-            emoji={emoji}
-            color={color}
-            index={index}
-          />
-        ))}
-      </View>
-    </Animated.View>
-  );
-}
-
-// Individual Coral Card with Animation
-function CoralCard({ emoji, color, index }) {
-  const scaleAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      delay: index * 50,
-      tension: 50,
-      friction: 7,
-      useNativeDriver: true,
-    }).start();
-  }, []);
-
-  return (
-    <Animated.View
-      style={[
-        styles.coralCard,
-        {
-          backgroundColor: color,
-          transform: [{ scale: scaleAnim }],
-        },
-      ]}
-    >
-      <Text style={styles.coralEmoji}>{emoji}</Text>
-    </Animated.View>
-  );
-}
-
-// Empty Ocean State
-function EmptyOcean() {
-  return (
-    <View style={styles.emptyOcean}>
-      <Text style={styles.emptyOceanEmoji}>🐚</Text>
-      <Text style={styles.emptyOceanTitle}>Empty Ocean</Text>
-      <Text style={styles.emptyOceanText}>
-        Your ocean is waiting to bloom!{"\n"}
-        Complete focus sessions to grow beautiful corals.
-      </Text>
-      <View style={styles.emptyOceanHint}>
-        <Text style={styles.hintText}>
-          💡 Tip: Higher completion % = Better corals!
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-// Achievement Badge Component
-function AchievementBadge({ title, emoji }) {
-  const scaleAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      tension: 100,
-      friction: 5,
-      useNativeDriver: true,
-    }).start();
-  }, []);
-
-  return (
-    <Animated.View
-      style={[styles.achievementBadge, { transform: [{ scale: scaleAnim }] }]}
-    >
-      <Text style={styles.badgeEmoji}>{emoji}</Text>
-      <Text style={styles.badgeTitle}>{title}</Text>
-    </Animated.View>
-  );
-}
+const CARD_SIZE = (width - 56) / 3;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0077BE",
-  },
-  oceanBackground: {
-    position: "absolute",
-    top: 0,
+  container: { flex: 1, backgroundColor: '#020B18' },
+  seaFloor: {
+    position: 'absolute',
+    bottom: 0,
     left: 0,
     right: 0,
-    height: 300,
-    justifyContent: "center",
-    alignItems: "center",
+    height: 120,
   },
-  bubbles: {
-    position: "absolute",
-    fontSize: 24,
-    color: "rgba(255, 255, 255, 0.3)",
-    top: 50,
-    left: width * 0.2,
+  scrollView: { flex: 1 },
+  scrollContent: { padding: 20, paddingTop: 60 },
+
+  // Header
+  header: { alignItems: 'center', marginBottom: 22 },
+  title: { fontSize: 30, fontWeight: 'bold', color: 'white', letterSpacing: 1, textShadowColor: 'rgba(0,160,255,0.8)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 12 },
+  subtitle: { fontSize: 13, color: 'rgba(160,220,255,0.7)', marginTop: 4, letterSpacing: 0.5 },
+
+  // Level Card
+  levelCard: { borderRadius: 22, overflow: 'hidden', marginBottom: 18, borderWidth: 1, borderColor: 'rgba(0,160,255,0.3)' },
+  levelGradient: { flexDirection: 'row', alignItems: 'center', padding: 18, gap: 16 },
+  levelGlowCircle: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: 'rgba(0,160,255,0.25)',
+    borderWidth: 2, borderColor: 'rgba(0,200,255,0.6)',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#00C8FF', shadowOffset: { width: 0, height: 0 }, shadowRadius: 12, shadowOpacity: 0.8,
   },
-  scrollView: {
-    flex: 1,
+  levelNumber: { fontSize: 28, fontWeight: 'bold', color: 'white' },
+  levelInfo: { flex: 1 },
+  levelTitle: { fontSize: 18, fontWeight: 'bold', color: 'white', marginBottom: 3 },
+  levelSub: { fontSize: 12, color: 'rgba(160,220,255,0.75)', marginBottom: 8 },
+  progressBarBg: { height: 6, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 3, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#00C8FF', borderRadius: 3 },
+  progressPct: { fontSize: 11, color: 'rgba(0,200,255,0.7)', marginTop: 4 },
+
+  // Stats
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 22, justifyContent: 'space-between' },
+  statCard: { width: (width - 60) / 3, paddingVertical: 14, paddingHorizontal: 8, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  statIcon: { fontSize: 26, marginBottom: 6 },
+  statValue: { fontSize: 20, fontWeight: 'bold', color: 'white', marginBottom: 2 },
+  statLabel: { fontSize: 10, color: 'rgba(160,220,255,0.7)', textAlign: 'center' },
+
+  // Section header
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  sectionTitle: { fontSize: 17, fontWeight: 'bold', color: 'white' },
+  sectionBadge: { backgroundColor: 'rgba(0,160,255,0.2)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(0,160,255,0.35)' },
+  sectionBadgeText: { fontSize: 11, color: 'rgba(160,220,255,0.9)', fontWeight: '600' },
+
+  // Creatures grid
+  creaturesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 22 },
+
+  // Unlocked creature card
+  creatureCard: { width: CARD_SIZE, borderRadius: 18, overflow: 'hidden' },
+  creatureGradient: {
+    padding: 12, alignItems: 'center', minHeight: 110,
+    borderWidth: 1, borderColor: 'rgba(0,180,255,0.35)',
+    justifyContent: 'center',
   },
-  header: {
-    padding: 20,
-    paddingTop: 60,
-    alignItems: "center",
+  creatureIcon: { fontSize: 38, marginBottom: 6 },
+  creatureName: { fontSize: 11, color: 'rgba(200,240,255,0.9)', fontWeight: '600', textAlign: 'center' },
+  countBadge: {
+    position: 'absolute', top: 7, right: 7,
+    backgroundColor: 'rgba(0,160,255,0.7)',
+    borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "white",
-    marginBottom: 12,
-    textAlign: "center",
+  countText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
+
+  // Locked creature card
+  lockedGradient: {
+    padding: 12, alignItems: 'center', minHeight: 110,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 18, justifyContent: 'center',
   },
-  levelBadge: {
-    backgroundColor: "rgba(255, 215, 0, 0.9)",
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginBottom: 12,
-  },
-  levelText: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#0077BE",
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "rgba(255,255,255,0.9)",
-    textAlign: "center",
-  },
-  statsCard: {
-    backgroundColor: "rgba(255,255,255,0.15)",
-    marginHorizontal: 20,
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-  },
-  statsHeader: {
-    alignItems: "center",
-    marginBottom: 15,
-  },
-  statsTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "white",
-  },
-  statsGrid: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
-  statBox: {
-    alignItems: "center",
-  },
-  statValue: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "white",
-  },
-  statLabel: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.8)",
-    marginTop: 4,
-  },
-  oceanFloor: {
-    backgroundColor: "rgba(255,255,255,0.98)",
-    marginHorizontal: 20,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 20,
-    minHeight: 400,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 10,
-  },
-  coralSection: {
-    marginBottom: 30,
-  },
-  coralSectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#0077BE",
-    marginBottom: 15,
-  },
-  coralGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  coralCard: {
-    width: (width - 80) / 3.5,
-    height: (width - 80) / 3.5,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  coralEmoji: {
-    fontSize: 36,
-  },
-  marineLife: {
-    marginTop: 30,
-    padding: 20,
-    backgroundColor: "rgba(0, 119, 190, 0.05)",
-    borderRadius: 16,
-    alignItems: "center",
-  },
-  marineText: {
-    fontSize: 28,
-    letterSpacing: 8,
-  },
-  emptyOcean: {
-    alignItems: "center",
-    paddingVertical: 80,
-    paddingHorizontal: 40,
-  },
-  emptyOceanEmoji: {
-    fontSize: 80,
-    marginBottom: 20,
-  },
-  emptyOceanTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#0077BE",
-    marginBottom: 12,
-  },
-  emptyOceanText: {
-    fontSize: 15,
-    color: "#666",
-    textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 20,
-  },
-  emptyOceanHint: {
-    backgroundColor: "#FFF3CD",
-    padding: 12,
-    borderRadius: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: "#FFC107",
-  },
-  hintText: {
-    fontSize: 13,
-    color: "#856404",
-    fontWeight: "500",
-  },
-  motivationCard: {
-    marginHorizontal: 20,
-    marginTop: 20,
-    padding: 20,
-    backgroundColor: "rgba(255,255,255,0.95)",
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: "#4CAF50",
-    shadowColor: "#4CAF50",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  motivationText: {
-    fontSize: 15,
-    color: "#2E7D32",
-    textAlign: "center",
-    lineHeight: 22,
-    fontWeight: "500",
-  },
-  achievementsSection: {
-    marginHorizontal: 20,
-    marginTop: 20,
-    padding: 20,
-    backgroundColor: "rgba(255,255,255,0.95)",
-    borderRadius: 20,
-  },
-  achievementsTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#0077BE",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  badgesContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 12,
-  },
-  achievementBadge: {
-    backgroundColor: "#FFF",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 16,
-    alignItems: "center",
-    minWidth: 100,
-    borderWidth: 2,
-    borderColor: "#FFD700",
-    shadowColor: "#FFD700",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  badgeEmoji: {
-    fontSize: 28,
-    marginBottom: 4,
-  },
-  badgeTitle: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#333",
-    textAlign: "center",
-  },
+  lockIcon: { fontSize: 26, marginBottom: 5, opacity: 0.5 },
+  lockedName: { fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: '600', textAlign: 'center', marginBottom: 3 },
+  unlockHint: { fontSize: 10, color: 'rgba(0,160,255,0.45)', textAlign: 'center' },
+
+  // Empty state
+  emptyState: { alignItems: 'center', paddingVertical: 50 },
+  emptyEmoji: { fontSize: 70, marginBottom: 16 },
+  emptyTitle: { fontSize: 22, fontWeight: 'bold', color: 'white', marginBottom: 10 },
+  emptyText: { fontSize: 14, color: 'rgba(160,220,255,0.65)', textAlign: 'center', lineHeight: 22, paddingHorizontal: 20 },
+
+  // Tip card
+  tipCard: { padding: 16, borderRadius: 16, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(0,160,255,0.2)', marginBottom: 10 },
+  tipIcon: { fontSize: 22, marginRight: 12 },
+  tipText: { flex: 1, fontSize: 13, color: 'rgba(200,240,255,0.85)', lineHeight: 19 },
 });

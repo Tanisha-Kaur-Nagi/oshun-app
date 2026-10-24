@@ -1,107 +1,137 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import React, { useState, useEffect } from 'react';
 import {
-    Alert,
-    BackHandler,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from "react-native";
-import { useApp } from "../context/AppContext";
-import { insertFocusSession, insertReward } from "../services/database";
-import TimerService from "../services/timer";
-import { calculateRewardLevel } from "../utils/focusModes";
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  BackHandler,
+  Dimensions,
+  Animated,
+} from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Animatable from 'react-native-animatable';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import TimerService from '../services/timer';
+import AppBlockerService from '../services/appBlocker';
+import { insertFocusSession, insertReward } from '../services/database';
+import { useApp } from '../context/AppContext';
+import { calculateRewardLevel } from '../utils/focusModes';
+
+const { width } = Dimensions.get('window');
 
 export default function ActiveFocusScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { user, refreshData, setIsSessionActive } = useApp();
+  const { user, refreshData, setIsSessionActive, settings } = useApp();
 
-  const [timerState, setTimerState] = useState({
-    remainingSeconds: 0,
-    formattedTime: "00:00",
-    progress: 0,
-    isPaused: false,
-  });
-  const [sessionStartTime] = useState(new Date().toISOString());
-
-  const modeName = params.modeName || "Focus";
-  const modeIcon = params.modeIcon || "🌊";
+  const modeName = params.mode || 'Study';
   const duration = parseInt(params.duration) || 25;
 
+  const [timerState, setTimerState] = useState(TimerService.getState());
+  const [sessionStartTime] = useState(new Date().toISOString());
+
+  // Animation values
+  const pulseAnim = useState(new Animated.Value(1))[0];
+  const glowAnim = useState(new Animated.Value(0))[0];
+
   useEffect(() => {
-    // Start timer
+    // Pulse animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // Glow animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(glowAnim, {
+          toValue: 0,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // Setup session
+    const setupSession = async () => {
+      try {
+        const savedApps = await AsyncStorage.getItem('@blocked_apps');
+        const blockedApps = savedApps ? JSON.parse(savedApps) : [];
+
+        AppBlockerService.startMonitoring(blockedApps, () => {
+          Alert.alert(
+            '⚠️ Focus Session Active',
+            'You left OSHION. This will reduce your completion percentage.',
+            [{ text: 'OK' }]
+          );
+        });
+      } catch (error) {
+        console.error('Error setting up monitoring:', error);
+      }
+    };
+
+    setupSession();
     setIsSessionActive(true);
+
     TimerService.start(
       duration,
       (remainingSeconds) => {
-        // On tick
         setTimerState(TimerService.getState());
       },
       () => {
-        // On complete
         handleSessionComplete(false);
-      },
+      }
     );
 
-    // Prevent back button
-    const backHandler = BackHandler.addEventListener(
-      "hardwareBackPress",
-      () => {
-        Alert.alert(
-          "End Session?",
-          "Are you sure you want to end this focus session?",
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "End Session", onPress: () => handleSessionComplete(true) },
-          ],
-        );
-        return true;
-      },
-    );
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      Alert.alert('End Session?', 'Are you sure you want to end this focus session?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'End Session', onPress: () => handleSessionComplete(true) },
+      ]);
+      return true;
+    });
 
     return () => {
       TimerService.stop();
+      AppBlockerService.stopMonitoring();
       setIsSessionActive(false);
       backHandler.remove();
     };
   }, []);
 
-  const handlePauseResume = () => {
-    if (timerState.isPaused) {
-      TimerService.resume();
-    } else {
-      TimerService.pause();
-    }
-    setTimerState(TimerService.getState());
-  };
-
-  const handleStop = () => {
-    Alert.alert(
-      "End Session Early?",
-      "Your progress will be saved, but you may receive a smaller reward.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "End Session",
-          style: "destructive",
-          onPress: () => handleSessionComplete(true),
-        },
-      ],
-    );
-  };
-
   const handleSessionComplete = async (interrupted) => {
     TimerService.stop();
+    const interruptionCount = AppBlockerService.stopMonitoring();
     setIsSessionActive(false);
 
-    const actualDuration = TimerService.getActualDuration();
-    const completionPercentage = TimerService.getCompletionPercentage();
+    let actualDuration = TimerService.getActualDuration();
+    let completionPercentage = TimerService.getCompletionPercentage();
+
+    if (interruptionCount > 0) {
+      const penalty = Math.min(interruptionCount * 5, 30);
+      completionPercentage = Math.max(completionPercentage - penalty, 0);
+    }
+
     const reward = calculateRewardLevel(completionPercentage);
 
     try {
-      // Save session to database
       const sessionId = await insertFocusSession({
         userId: user.userId,
         focusMode: modeName,
@@ -110,178 +140,423 @@ export default function ActiveFocusScreen() {
         completionPercentage: completionPercentage,
         startTime: sessionStartTime,
         endTime: new Date().toISOString(),
-        isInterrupted: interrupted,
+        isInterrupted: interrupted || interruptionCount > 0,
       });
 
-      // Save reward if earned
-      if (reward.level !== "none") {
+      if (reward.level !== 'none') {
         await insertReward({
           userId: user.userId,
           sessionId: sessionId,
-          rewardType: "coral",
+          rewardType: 'coral',
           rewardLevel: reward.level,
           earnedAt: new Date().toISOString(),
         });
       }
 
-      // Refresh data
       refreshData();
 
-      // Show completion message
+      const interruptionMessage =
+        interruptionCount > 0
+          ? `\n\n⚠️ ${interruptionCount} interruption${
+              interruptionCount > 1 ? 's' : ''
+            } detected (-${Math.min(interruptionCount * 5, 30)}%)`
+          : '';
+
       Alert.alert(
-        interrupted ? "Session Ended" : "🎉 Session Complete!",
-        `You focused for ${actualDuration} minutes (${completionPercentage}%)\n\nReward: ${reward.emoji} ${reward.name}`,
-        [
-          {
-            text: "OK",
-            onPress: () => router.replace("/(tabs)"),
-          },
-        ],
+        interrupted ? 'Session Ended' : '🎉 Session Complete!',
+        `You focused for ${actualDuration} minutes (${Math.round(
+          completionPercentage
+        )}%)${interruptionMessage}\n\nReward: ${reward.emoji} ${reward.name}`,
+        [{ text: 'OK', onPress: () => router.replace('/(tabs)') }]
       );
     } catch (error) {
-      console.error("Error saving session:", error);
-      Alert.alert("Error", "Failed to save session. Please try again.");
-      router.replace("/(tabs)");
+      console.error('Error saving session:', error);
+      Alert.alert('Error', 'Failed to save session. Please try again.');
+      router.replace('/(tabs)');
     }
   };
 
+  const handlePause = () => {
+    TimerService.pause();
+    setTimerState(TimerService.getState());
+  };
+
+  const handleResume = () => {
+    TimerService.resume();
+    setTimerState(TimerService.getState());
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const progress = ((timerState.totalSeconds - timerState.remainingSeconds) / timerState.totalSeconds) * 100;
+
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.modeIcon}>{modeIcon}</Text>
-        <Text style={styles.modeName}>{modeName}</Text>
-      </View>
+    <LinearGradient
+      colors={['#0A0E27', '#1A1F3A', '#2D1B69', '#1A1F3A', '#0A0E27']}
+      locations={[0, 0.25, 0.5, 0.75, 1]}
+      style={styles.container}
+    >
+      {/* Animated background circles */}
+      <Animatable.View
+        animation="pulse"
+        iterationCount="infinite"
+        duration={4000}
+        style={[styles.bgCircle, styles.bgCircle1]}
+      />
+      <Animatable.View
+        animation="pulse"
+        iterationCount="infinite"
+        duration={5000}
+        delay={1000}
+        style={[styles.bgCircle, styles.bgCircle2]}
+      />
 
-      <View style={styles.timerContainer}>
-        <View style={styles.progressRing}>
-          <View
-            style={[
-              styles.progressBar,
-              { height: `${timerState.progress * 100}%` },
-            ]}
-          />
-        </View>
+      <View style={styles.content}>
+        {/* Header */}
+        <Animatable.View animation="fadeInDown" style={styles.header}>
+          <Text style={styles.modeText}>{modeName}</Text>
+          <Text style={styles.durationText}>{duration} min session</Text>
+        </Animatable.View>
 
-        <Text style={styles.timerText}>{timerState.formattedTime}</Text>
-        <Text style={styles.progressText}>
-          {Math.round(timerState.progress * 100)}% Complete
-        </Text>
-      </View>
+        {/* Timer Circle */}
+        <Animatable.View animation="fadeIn" delay={300} style={styles.timerContainer}>
+          {/* Outer glow ring */}
+          <Animated.View style={[styles.glowRing, { opacity: glowAnim }]}>
+            <LinearGradient
+              colors={['#667EEA', '#764BA2', '#F093FB', '#667EEA']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.glowGradient}
+            />
+          </Animated.View>
 
-      <View style={styles.controls}>
-        <TouchableOpacity
-          style={[styles.controlButton, styles.pauseButton]}
-          onPress={handlePauseResume}
+          {/* Progress ring */}
+          <View style={styles.progressRing}>
+            <LinearGradient
+              colors={['#667EEA', '#764BA2']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={[
+                styles.progressGradient,
+                {
+                  transform: [
+                    { rotate: `${(progress * 3.6) - 90}deg` },
+                  ],
+                },
+              ]}
+            />
+          </View>
+
+          {/* Timer display */}
+          <Animated.View style={[styles.timerCircle, { transform: [{ scale: pulseAnim }] }]}>
+            <LinearGradient
+              colors={['rgba(102,126,234,0.3)', 'rgba(118,75,162,0.3)']}
+              style={styles.timerCircleGradient}
+            >
+              <Text style={styles.timerText}>{formatTime(timerState.remainingSeconds)}</Text>
+              <Text style={styles.timerSubtext}>
+                {timerState.isPaused ? 'Paused' : 'Remaining'}
+              </Text>
+              <View style={styles.progressTextContainer}>
+                <Text style={styles.progressText}>{Math.round(progress)}%</Text>
+              </View>
+            </LinearGradient>
+          </Animated.View>
+        </Animatable.View>
+
+        {/* Controls */}
+        <Animatable.View animation="fadeInUp" delay={500} style={styles.controls}>
+          {timerState.isPaused ? (
+            <TouchableOpacity style={styles.mainButton} onPress={handleResume} activeOpacity={0.8}>
+              <LinearGradient
+                colors={['#43E97B', '#38F9D7']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.mainButtonGradient}
+              >
+                <Text style={styles.buttonIcon}>▶️</Text>
+                <Text style={styles.buttonText}>Resume</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.mainButton} onPress={handlePause} activeOpacity={0.8}>
+              <LinearGradient
+                colors={['#F093FB', '#F5576C']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.mainButtonGradient}
+              >
+                <Text style={styles.buttonIcon}>⏸️</Text>
+                <Text style={styles.buttonText}>Pause</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => handleSessionComplete(true)}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.05)']}
+              style={styles.secondaryButtonGradient}
+            >
+              <Text style={styles.secondaryButtonText}>End Session</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animatable.View>
+
+        {/* Stats */}
+        <Animatable.View animation="fadeInUp" delay={700} style={styles.statsContainer}>
+          <LinearGradient
+            colors={['rgba(255,255,255,0.05)', 'rgba(255,255,255,0.02)']}
+            style={styles.statsCard}
+          >
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Started</Text>
+              <Text style={styles.statValue}>
+                {new Date(sessionStartTime).toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Duration</Text>
+              <Text style={styles.statValue}>{duration} min</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Progress</Text>
+              <Text style={styles.statValue}>{Math.round(progress)}%</Text>
+            </View>
+          </LinearGradient>
+        </Animatable.View>
+
+        {/* Motivational Text */}
+        <Animatable.View
+          animation="fadeIn"
+          delay={900}
+          style={styles.motivationContainer}
         >
-          <Text style={styles.controlButtonText}>
-            {timerState.isPaused ? "▶️ Resume" : "⏸️ Pause"}
+          <Text style={styles.motivationText}>
+            {progress < 25
+              ? '🌱 Just getting started...'
+              : progress < 50
+              ? '🌿 Building focus...'
+              : progress < 75
+              ? '🌳 Great momentum!'
+              : progress < 100
+              ? '🌟 Almost there!'
+              : '🎉 Session complete!'}
           </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.controlButton, styles.stopButton]}
-          onPress={handleStop}
-        >
-          <Text style={styles.controlButtonText}>⏹️ Stop</Text>
-        </TouchableOpacity>
+        </Animatable.View>
       </View>
-
-      <View style={styles.motivationBox}>
-        <Text style={styles.motivationText}>
-          {timerState.isPaused
-            ? "⏸️ Paused - Take a breath and resume when ready"
-            : "🌊 Stay focused! Your ocean is growing..."}
-        </Text>
-      </View>
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0077BE",
-    padding: 20,
-    paddingTop: 60,
+  },
+  bgCircle: {
+    position: 'absolute',
+    borderRadius: 1000,
+    opacity: 0.1,
+  },
+  bgCircle1: {
+    width: 400,
+    height: 400,
+    backgroundColor: '#667EEA',
+    top: -100,
+    right: -100,
+  },
+  bgCircle2: {
+    width: 350,
+    height: 350,
+    backgroundColor: '#F093FB',
+    bottom: -80,
+    left: -80,
+  },
+  content: {
+    flex: 1,
+    paddingTop: 80,
+    paddingHorizontal: 20,
+    alignItems: 'center',
   },
   header: {
-    alignItems: "center",
+    alignItems: 'center',
     marginBottom: 40,
   },
-  modeIcon: {
-    fontSize: 48,
-    marginBottom: 12,
+  modeText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 8,
   },
-  modeName: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "white",
+  durationText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
+    letterSpacing: 1,
   },
   timerContainer: {
-    alignItems: "center",
-    marginBottom: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 50,
+  },
+  glowRing: {
+    position: 'absolute',
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    overflow: 'hidden',
+  },
+  glowGradient: {
+    width: '100%',
+    height: '100%',
   },
   progressRing: {
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    overflow: "hidden",
-    marginBottom: 20,
-    position: "relative",
+    position: 'absolute',
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    borderWidth: 8,
+    borderColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
   },
-  progressBar: {
-    width: "100%",
-    backgroundColor: "rgba(76, 175, 80, 0.5)",
-    position: "absolute",
-    bottom: 0,
+  progressGradient: {
+    position: 'absolute',
+    width: '50%',
+    height: '100%',
+    right: 0,
+  },
+  timerCircle: {
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    overflow: 'hidden',
+  },
+  timerCircleGradient: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 130,
   },
   timerText: {
-    fontSize: 72,
-    fontWeight: "bold",
-    color: "white",
-    position: "absolute",
-    top: "40%",
+    fontSize: 64,
+    fontWeight: 'bold',
+    color: 'white',
+    fontVariant: ['tabular-nums'],
+  },
+  timerSubtext: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
+    marginTop: 8,
+    letterSpacing: 1,
+  },
+  progressTextContainer: {
+    marginTop: 15,
+    backgroundColor: 'rgba(102,126,234,0.3)',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 12,
   },
   progressText: {
-    fontSize: 18,
-    color: "rgba(255,255,255,0.9)",
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: 'white',
   },
   controls: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginBottom: 40,
+    width: '100%',
+    gap: 12,
+    marginBottom: 30,
   },
-  controlButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 28,
-    borderRadius: 12,
-    minWidth: 140,
-    alignItems: "center",
+  mainButton: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#667EEA',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 15,
+    elevation: 10,
   },
-  pauseButton: {
-    backgroundColor: "rgba(255,255,255,0.3)",
+  mainButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    gap: 12,
   },
-  stopButton: {
-    backgroundColor: "rgba(255,0,0,0.4)",
+  buttonIcon: {
+    fontSize: 24,
   },
-  controlButtonText: {
-    color: "white",
+  buttonText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  secondaryButton: {
+    borderRadius: 15,
+    overflow: 'hidden',
+  },
+  secondaryButtonGradient: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  secondaryButtonText: {
+    color: 'rgba(255,255,255,0.8)',
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: '600',
   },
-  motivationBox: {
-    backgroundColor: "rgba(255,255,255,0.2)",
+  statsContainer: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  statsCard: {
+    borderRadius: 20,
     padding: 20,
-    borderRadius: 16,
-    alignItems: "center",
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
+    marginBottom: 6,
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginHorizontal: 15,
+  },
+  motivationContainer: {
+    alignItems: 'center',
   },
   motivationText: {
-    color: "white",
     fontSize: 16,
-    textAlign: "center",
-    lineHeight: 24,
+    color: 'rgba(255,255,255,0.7)',
+    fontStyle: 'italic',
+    letterSpacing: 0.5,
   },
 });

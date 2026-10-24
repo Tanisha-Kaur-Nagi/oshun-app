@@ -1,18 +1,24 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useState, useEffect, useContext } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
 import {
+  initDatabase,
   getFocusSessions,
-  getRewards,
   getStatistics,
   getTodayStats,
-  initDatabase,
-} from "../services/database";
+  getRewards,
+  getTodayGoal,
+  getAchievements,
+  getCurrentStreak,
+  updateGoalProgress as dbUpdateGoalProgress,
+} from '../services/database';
 
 const AppContext = createContext();
 
-export const useApp = () => useContext(AppContext);
-
 export const AppProvider = ({ children }) => {
-  const [user, setUser] = useState({ userId: 1, username: "Student" });
+  const [user, setUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [sessions, setSessions] = useState([]);
   const [stats, setStats] = useState({
     totalMinutes: 0,
@@ -24,75 +30,145 @@ export const AppProvider = ({ children }) => {
     sessionCount: 0,
   });
   const [rewards, setRewards] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [currentSession, setCurrentSession] = useState(null);
+  const [todayGoal, setTodayGoal] = useState(null);
+  const [achievements, setAchievements] = useState([]);
+  const [streak, setStreak] = useState(0);
   const [isSessionActive, setIsSessionActive] = useState(false);
-  // Initialize database when app starts
+  const [settings, setSettings] = useState({
+    theme: 'dark',
+    notificationsEnabled: true,
+    soundsEnabled: true,
+  });
+
   useEffect(() => {
-    console.log("🔵 Initializing database...");
-    initDatabase()
-      .then(() => {
-        console.log("✅ Database initialized successfully");
-        loadData();
-      })
-      .catch((error) => {
-        console.error("❌ Database init failed:", error);
+    const initialize = async () => {
+      try {
+        console.log('Initializing database...');
+        await initDatabase();
+        console.log('Database initialized');
+
+        const savedUser = await AsyncStorage.getItem('@logged_in_user');
+        if (savedUser) {
+          const userData = JSON.parse(savedUser);
+          setUser(userData);
+          setIsAuthenticated(true);
+          await loadData(userData.userId);
+        }
+      } catch (error) {
+        console.error('Initialization error:', error);
+        Alert.alert('Error', 'Failed to initialize app: ' + error.message);
+      } finally {
         setIsLoading(false);
-      });
+      }
+    };
+
+    initialize();
   }, []);
 
-  // Load all data from database
-  const loadData = async () => {
+  const loadData = async (userId) => {
+    if (!userId) return;
     try {
-      console.log("📊 Loading data from database...");
+      const sessionsData = await getFocusSessions(userId);
+      const statsData = await getStatistics(userId);
+      const todayStatsData = await getTodayStats(userId);
+      const rewardsData = await getRewards(userId);
+      const goalData = await getTodayGoal(userId);
+      const achievementsData = await getAchievements(userId);
+      const streakData = await getCurrentStreak(userId);
 
-      const fetchedSessions = await getFocusSessions(user.userId);
-      const fetchedStats = await getStatistics(user.userId);
-      const fetchedRewards = await getRewards(user.userId);
-      const fetchedTodayStats = await getTodayStats(user.userId);
-
-      setSessions(fetchedSessions);
-      setStats(fetchedStats);
-      setRewards(fetchedRewards);
-      setTodayStats(fetchedTodayStats);
-
-      console.log("✅ Data loaded successfully:", {
-        sessions: fetchedSessions.length,
-        totalMinutes: fetchedStats.totalMinutes,
-        todayMinutes: fetchedTodayStats.totalMinutes,
-        rewards: fetchedRewards.length,
-      });
-
-      setIsLoading(false);
+      setSessions(sessionsData || []);
+      setStats(statsData || { totalMinutes: 0, sessionCount: 0, avgCompletion: 0 });
+      setTodayStats(todayStatsData || { totalMinutes: 0, sessionCount: 0 });
+      setRewards(rewardsData || []);
+      setTodayGoal(goalData);
+      setAchievements(achievementsData || []);
+      setStreak(streakData || 0);
     } catch (error) {
-      console.error("❌ Error loading data:", error);
-      setIsLoading(false);
+      console.error('Error loading data:', error);
     }
   };
 
-  // Refresh data (call this after adding new sessions)
-  const refreshData = () => {
-    console.log("🔄 Refreshing data...");
-    loadData();
+  const refreshData = async () => {
+    if (user?.userId) {
+      await loadData(user.userId);
+    }
   };
 
-  return (
-    <AppContext.Provider
-      value={{
-        user,
-        sessions,
-        stats,
-        todayStats,
-        rewards,
-        isLoading,
-        currentSession,
-        setCurrentSession,
-        isSessionActive,
-        setIsSessionActive,
-        refreshData,
-      }}
-    >
-      {children}
-    </AppContext.Provider>
-  );
+  const handleLogin = async (userData) => {
+    try {
+      setUser(userData);
+      setIsAuthenticated(true);
+      await AsyncStorage.setItem('@logged_in_user', JSON.stringify(userData));
+      await loadData(userData.userId);
+    } catch (error) {
+      console.error('Login error:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.removeItem('@logged_in_user');
+      setUser(null);
+      setIsAuthenticated(false);
+      setSessions([]);
+      setStats({ totalMinutes: 0, sessionCount: 0, avgCompletion: 0 });
+      setRewards([]);
+      setAchievements([]);
+      setStreak(0);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  const updateSettings = async (newSettings) => {
+    setSettings((prev) => ({ ...prev, ...newSettings }));
+  };
+
+  const sendSessionNotification = () => {
+    if (settings.notificationsEnabled) {
+      Alert.alert('Focus Time', 'Keep up the great work!');
+    }
+  };
+
+  const updateGoalProgressFunc = async (userId, minutes) => {
+    try {
+      await dbUpdateGoalProgress(userId, minutes);
+      await refreshData();
+    } catch (error) {
+      console.error('Error updating goal:', error);
+    }
+  };
+
+  const value = {
+    user,
+    isAuthenticated,
+    isLoading,
+    sessions,
+    stats,
+    todayStats,
+    rewards,
+    todayGoal,
+    achievements,
+    streak,
+    isSessionActive,
+    settings,
+    loadData,
+    refreshData,
+    handleLogin,
+    handleLogout,
+    setIsSessionActive,
+    updateSettings,
+    sendSessionNotification,
+    updateGoalProgress: updateGoalProgressFunc,
+  };
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+};
+
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) {
+    throw new Error('useApp must be used within AppProvider');
+  }
+  return context;
 };
