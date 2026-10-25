@@ -1,50 +1,40 @@
-# Welcome to your Expo app 👋
+# OSHUN: Digital Focus and Attention Regulator
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+SY BCA Mini Project (AY 2025-2026), MIT-WPU, Pune.
+By **Tanisha Kaur Nagi** and **Bhoomi Soni**.
 
-## Get started
+OSHUN is an offline-first Android app that helps users stay focused and build healthy phone habits. Users start a timed focus session, and the app notices when they leave it. Completed sessions earn rewards in a virtual ocean ecosystem (corals, fish and marine life).
 
-1. Install dependencies
+## Features
+- **Focus sessions:** timer with pause, resume and end, in modes like Study, Reading, Exercise, Meditation and Custom
+- **Interruption detection:** records when the user leaves the app during a session and applies a penalty to the score
+- **Ocean rewards:** better focus unlocks bigger corals and more marine life
+- **Statistics and analytics:** weekly focus chart, completion rate and streaks
+- **Daily goals, achievements and reminders**
+- **Login and signup** with a local database
+- **Settings:** notifications, sounds and blocked-apps list
 
-   ```bash
-   npm install
-   ```
+## Tech stack
+| Part | Technology |
+|---|---|
+| App framework | React Native, Expo SDK 54 |
+| Language | JavaScript, TypeScript (navigation files) |
+| Navigation | Expo Router |
+| Database | SQLite (expo-sqlite), AsyncStorage |
+| UI | expo-linear-gradient, react-native-animatable, gifted-charts |
+| Other | date-fns, expo-notifications |
 
-2. Start the app
+## How to run
+1. Install Node.js
+2. In this folder, run `npm install`
+3. Run `npx expo start`
+4. Open the app in **Expo Go** on an Android phone (the Expo Go version must match SDK 54)
 
-   ```bash
-   npx expo start
-   ```
+## Limitations
+- Data is stored only on the device (no cloud sync)
+- Full operating-system-level app blocking is not implemented (Expo Go limitation); the app detects interruptions only
+- Passwords are stored locally without encryption
+- Prototype-level testing only (15 manual test cases)
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Project report
+The full mini project report covers the analysis, design diagrams, database tables and test cases.
